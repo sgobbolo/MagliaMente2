@@ -1,0 +1,79 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() { return request.auth != null; }
+    function isAdmin() { 
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        request.auth.token.email == 'sgobbi.marco@gmail.com'
+      );
+    }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+
+    // Validation helpers
+    function isSchemaValidWork(data) {
+      return data.keys().hasAll(['title', 'description', 'category', 'imageUrl', 'createdAt']) &&
+             data.keys().size() >= 5 && data.keys().size() <= 6 &&
+             data.title is string && data.title.size() <= 100 &&
+             data.description is string && data.description.size() <= 2000 &&
+             data.category is string && data.category.size() <= 64 &&
+             data.imageUrl is string && data.imageUrl.size() <= 1000000;
+    }
+
+    function isValidCategory(data) {
+      return data.keys().hasAll(['name', 'slug']) &&
+             data.keys().size() == 2 &&
+             data.name is string && data.name.size() <= 50 &&
+             data.slug is string && data.slug.size() <= 50 &&
+             data.slug.matches('^[a-z0-9-]+$');
+    }
+
+    // 1. Works Collection
+    match /works/{workId} {
+      allow get: if isValidId(workId);
+      allow list: if true;
+      allow create: if isAdmin() && 
+                      isSchemaValidWork(incoming()) && 
+                      isValidId(workId) && 
+                      incoming().createdAt == request.time;
+      allow update: if isAdmin() && 
+                      isSchemaValidWork(incoming()) && 
+                      incoming().createdAt == existing().createdAt &&
+                      incoming().updatedAt == request.time &&
+                      isValidId(workId) &&
+                      incoming().diff(existing()).affectedKeys().hasOnly(['title', 'description', 'category', 'imageUrl', 'updatedAt']);
+      allow delete: if isAdmin() && isValidId(workId);
+    }
+
+    // 2. Categories Collection
+    match /categories/{catId} {
+      allow get: if isValidId(catId);
+      allow list: if true;
+      allow create: if isAdmin() && isValidCategory(incoming()) && isValidId(catId);
+      allow update: if isAdmin() && isValidCategory(incoming()) && isValidId(catId) && (
+        incoming().diff(existing()).affectedKeys().hasOnly(['name', 'slug'])
+      );
+      allow delete: if isAdmin() && isValidId(catId);
+    }
+
+    // 3. Admins Collection
+    match /admins/{userId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin() && isValidId(userId);
+    }
+
+    // 4. Test connection path
+    match /test/connection {
+      allow read: if true;
+    }
+  }
+}

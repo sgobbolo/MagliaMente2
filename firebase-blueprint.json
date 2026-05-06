@@ -1,0 +1,51 @@
+{
+  "entities": {
+    "Work": {
+      "title": "Craft Work",
+      "description": "A handmade craft project (knitting, crochet, etc.)",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "description": "Title of the work" },
+        "description": { "type": "string", "description": "Description of the work" },
+        "category": { "type": "string", "enum": ["ferri", "uncinetto", "macramè", "cucito"], "description": "Category of the craft" },
+        "imageUrl": { "type": "string", "format": "uri", "description": "URL of the image" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last update timestamp" }
+      },
+      "required": ["title", "description", "category", "imageUrl", "createdAt"]
+    },
+    "Category": {
+      "title": "Work Category",
+      "description": "A category for grouping craft works",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Display name of the category" },
+        "slug": { "type": "string", "description": "URL-friendly identifier" }
+      },
+      "required": ["name", "slug"]
+    },
+    "Admin": {
+      "title": "Admin User",
+      "description": "User with administrative privileges",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "format": "email" }
+      },
+      "required": ["email"]
+    }
+  },
+  "firestore": {
+    "works": {
+      "schema": "Work",
+      "description": "Collection of craft works"
+    },
+    "categories": {
+      "schema": "Category",
+      "description": "Collection of dynamic work categories"
+    },
+    "admins": {
+      "schema": "Admin",
+      "description": "Collection of authorized admin UIDs"
+    }
+  }
+}
