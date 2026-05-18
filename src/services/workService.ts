@@ -1,17 +1,17 @@
+import { db, auth } from '../lib/firebase';
 import { 
   collection, 
+  getDocs, 
   addDoc, 
   updateDoc, 
   deleteDoc, 
   doc, 
-  getDocs, 
   onSnapshot,
-  query, 
-  orderBy, 
-  Timestamp,
-  serverTimestamp
+  query,
+  orderBy,
+  serverTimestamp,
+  FieldValue
 } from 'firebase/firestore';
-import { db, auth } from '../lib/firebase';
 
 export interface Work {
   id?: string;
@@ -19,8 +19,8 @@ export interface Work {
   description: string;
   category: string;
   imageUrl: string;
-  createdAt: any;
-  updatedAt?: any;
+  createdAt: { seconds: number } | FieldValue;
+  updatedAt?: { seconds: number } | FieldValue;
 }
 
 enum OperationType {
@@ -40,6 +40,7 @@ interface FirestoreErrorInfo {
     userId?: string | null;
     email?: string | null;
     emailVerified?: boolean | null;
+    isAnonymous?: boolean | null;
   }
 }
 
@@ -50,6 +51,7 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
       userId: auth.currentUser?.uid,
       email: auth.currentUser?.email,
       emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
     },
     operationType,
     path
@@ -58,73 +60,68 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
   throw new Error(JSON.stringify(errInfo));
 }
 
+const COLLECTION_NAME = 'works';
+
 export const workService = {
   async getAllWorks(): Promise<Work[]> {
-    const path = 'works';
     try {
-      console.log(`getAllWorks: fetching from path: ${path} [DB: ${db.app.options.projectId}]`);
-      const q = query(collection(db, path), orderBy('createdAt', 'desc'));
+      const q = query(collection(db, COLLECTION_NAME), orderBy('createdAt', 'desc'));
       const querySnapshot = await getDocs(q);
-      console.log(`getAllWorks: found ${querySnapshot.size} documents`);
       return querySnapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
-      })) as Work[];
+      } as Work));
     } catch (error) {
-      console.error(`getAllWorks error:`, error);
-      handleFirestoreError(error, OperationType.LIST, path);
+      handleFirestoreError(error, OperationType.LIST, COLLECTION_NAME);
       return [];
     }
   },
 
   subscribeToWorks(callback: (works: Work[]) => void) {
-    const path = 'works';
-    const q = query(collection(db, path), orderBy('createdAt', 'desc'));
+    const q = query(collection(db, COLLECTION_NAME), orderBy('createdAt', 'desc'));
     
     return onSnapshot(q, (snapshot) => {
       const works = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
-      })) as Work[];
+      } as Work));
       callback(works);
     }, (error) => {
-      console.error("onSnapshot works error:", error);
-      handleFirestoreError(error, OperationType.LIST, path);
+      handleFirestoreError(error, OperationType.LIST, COLLECTION_NAME);
     });
   },
 
   async addWork(work: Omit<Work, 'id' | 'createdAt' | 'updatedAt'>) {
-    const path = 'works';
     try {
-      return await addDoc(collection(db, path), {
+      const docRef = await addDoc(collection(db, COLLECTION_NAME), {
         ...work,
         createdAt: serverTimestamp()
       });
+      return { id: docRef.id, ...work };
     } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, path);
+      handleFirestoreError(error, OperationType.CREATE, COLLECTION_NAME);
     }
   },
 
   async updateWork(id: string, work: Partial<Omit<Work, 'id' | 'createdAt'>>) {
-    const path = `works/${id}`;
+    const docRef = doc(db, COLLECTION_NAME, id);
     try {
-      const workRef = doc(db, 'works', id);
-      return await updateDoc(workRef, {
+      await updateDoc(docRef, {
         ...work,
         updatedAt: serverTimestamp()
       });
     } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, path);
+      handleFirestoreError(error, OperationType.UPDATE, `${COLLECTION_NAME}/${id}`);
     }
   },
 
   async deleteWork(id: string) {
-    const path = `works/${id}`;
+    const docRef = doc(db, COLLECTION_NAME, id);
     try {
-      const workRef = doc(db, 'works', id);
-      return await deleteDoc(workRef);
+      await deleteDoc(docRef);
     } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, path);
+      handleFirestoreError(error, OperationType.DELETE, `${COLLECTION_NAME}/${id}`);
     }
   }
 };
+

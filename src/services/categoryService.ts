@@ -1,15 +1,12 @@
+import { db, auth } from '../lib/firebase';
 import { 
   collection, 
+  getDocs, 
   addDoc, 
-  updateDoc, 
   deleteDoc, 
   doc, 
-  getDocs, 
-  onSnapshot,
-  query, 
-  orderBy 
+  onSnapshot
 } from 'firebase/firestore';
-import { db, auth } from '../lib/firebase';
 
 export interface Category {
   id?: string;
@@ -26,67 +23,78 @@ enum OperationType {
   WRITE = 'write',
 }
 
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+    emailVerified?: boolean | null;
+    isAnonymous?: boolean | null;
+  }
+}
+
 function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
-  const errInfo = {
+  const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
     authInfo: {
       userId: auth.currentUser?.uid,
       email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
     },
     operationType,
     path
-  };
+  }
   console.error('Firestore Error: ', JSON.stringify(errInfo));
   throw new Error(JSON.stringify(errInfo));
 }
 
+const COLLECTION_NAME = 'categories';
+
 export const categoryService = {
   async getAllCategories(): Promise<Category[]> {
-    const path = 'categories';
     try {
-      const q = query(collection(db, path), orderBy('name', 'asc'));
-      const querySnapshot = await getDocs(q);
+      const querySnapshot = await getDocs(collection(db, COLLECTION_NAME));
       return querySnapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
-      })) as Category[];
+      } as Category));
     } catch (error) {
-      handleFirestoreError(error, OperationType.LIST, path);
+      handleFirestoreError(error, OperationType.LIST, COLLECTION_NAME);
       return [];
     }
   },
 
   subscribeToCategories(callback: (categories: Category[]) => void) {
-    const path = 'categories';
-    const q = query(collection(db, path), orderBy('name', 'asc'));
-    
-    return onSnapshot(q, (snapshot) => {
+    return onSnapshot(collection(db, COLLECTION_NAME), (snapshot) => {
       const categories = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
-      })) as Category[];
+      } as Category));
       callback(categories);
     }, (error) => {
-      console.error("onSnapshot categories error:", error);
-      handleFirestoreError(error, OperationType.LIST, path);
+      handleFirestoreError(error, OperationType.LIST, COLLECTION_NAME);
     });
   },
 
   async addCategory(category: Omit<Category, 'id'>) {
-    const path = 'categories';
     try {
-      return await addDoc(collection(db, path), category);
+      const docRef = await addDoc(collection(db, COLLECTION_NAME), category);
+      return { id: docRef.id, ...category };
     } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, path);
+      handleFirestoreError(error, OperationType.CREATE, COLLECTION_NAME);
     }
   },
 
   async deleteCategory(id: string) {
-    const path = `categories/${id}`;
+    const docRef = doc(db, COLLECTION_NAME, id);
     try {
-      return await deleteDoc(doc(db, 'categories', id));
+      await deleteDoc(docRef);
     } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, path);
+      handleFirestoreError(error, OperationType.DELETE, `${COLLECTION_NAME}/${id}`);
     }
   }
 };
+

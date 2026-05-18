@@ -1,6 +1,8 @@
 {
   "name": "MagliaMente",
-  "description": "Un sito personale per pubblicare i lavori fatti ai ferri, uncinetto, macramè e cucito con tonalità pastello calde.",
+  "description": "Un sito personale per pubblicare i lavori fatti ai ferri, uncinetto, macramè e cucito con tonalità pastello calde. Include un pannello di gestione per l'amministratore.",
   "requestFramePermissions": [],
-  "majorCapabilities": []
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

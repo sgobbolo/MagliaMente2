@@ -1,12 +1,5 @@
 import { useState, useEffect, FormEvent } from 'react';
-import { auth, isFirebaseConfigured } from '../lib/firebase';
-import { 
-  signInWithPopup, 
-  GoogleAuthProvider, 
-  signOut, 
-  onAuthStateChanged,
-  User
-} from 'firebase/auth';
+import { storageService } from '../services/storageService';
 import { workService, Work } from '../services/workService';
 import { categoryService, Category } from '../services/categoryService';
 import { 
@@ -29,7 +22,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 
 export default function Admin() {
-  const [user, setUser] = useState<User | null>(null);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [works, setWorks] = useState<Work[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
@@ -40,6 +33,7 @@ export default function Admin() {
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   
   // Form State
   const [formData, setFormData] = useState({
@@ -50,25 +44,27 @@ export default function Admin() {
   });
 
   useEffect(() => {
-    if (!isFirebaseConfigured) {
-      setLoading(false);
-      return;
-    }
-    const unsubscribeAuth = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      setLoading(false);
+    // Auth subscription
+    const unsubscribeAuth = storageService.onAuthStateChange((user) => {
+      setIsLoggedIn(!!user && storageService.isAdmin());
     });
+
 
     // Subscriptions
     const unsubscribeWorks = workService.subscribeToWorks((data) => {
       setWorks(data);
+      setLoading(false);
     });
 
     const unsubscribeCategories = categoryService.subscribeToCategories((data) => {
       setCategories(data);
-      if (data.length > 0 && !formData.category) {
-        setFormData(prev => ({ ...prev, category: data[0].slug }));
-      }
+      // Set default category only once if not set
+      setFormData(prev => {
+        if (!prev.category && data.length > 0) {
+          return { ...prev, category: data[0].slug };
+        }
+        return prev;
+      });
     });
 
     return () => {
@@ -76,32 +72,27 @@ export default function Admin() {
       unsubscribeWorks();
       unsubscribeCategories();
     };
-  }, [formData.category]);
+  }, []);
 
-  const handleLogin = async () => {
+  const handleLogin = async (e: FormEvent) => {
+    e.preventDefault();
     setLoginError(null);
     try {
-      const provider = new GoogleAuthProvider();
-      // Force account selection to avoid "instant close" if session is weird
-      provider.setCustomParameters({ prompt: 'select_account' });
-      await signInWithPopup(auth, provider);
-    } catch (error: any) {
-      console.error("Login failed", error);
-      let message = "Login fallito.";
-      if (error.code === 'auth/popup-blocked') {
-        message = "Il popup è stato bloccato dal browser. Abilita i popup per questo sito.";
-      } else if (error.code === 'auth/popup-closed-by-user') {
-        message = "Hai chiuso la finestra di accesso prima di completare l'operazione.";
-      } else if (error.code === 'auth/unauthorized-domain') {
-        message = "Questo dominio non è autorizzato nelle impostazioni Firebase.";
-      } else if (error.message) {
-        message = `Errore: ${error.message}`;
+      await storageService.login();
+      if (!storageService.isAdmin()) {
+        setLoginError("Questo account non è autorizzato per l'accesso amministrativo.");
+        await storageService.logout();
       }
-      setLoginError(message);
+    } catch (error) {
+      setLoginError("Errore durante l'accesso con Google. Assicurati che il tuo account sia autorizzato.");
     }
   };
 
-  const handleLogout = () => signOut(auth);
+
+  const handleLogout = async () => {
+    await storageService.logout();
+  };
+
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -148,8 +139,11 @@ export default function Admin() {
     if (window.confirm("Eliminando la categoria, i lavori associati potrebbero non essere più filtrabili correttamente. Continuare?")) {
       try {
         await categoryService.deleteCategory(id);
+        setSuccessMessage("Categoria eliminata!");
+        setTimeout(() => setSuccessMessage(null), 3000);
       } catch (error) {
         console.error("Failed to delete category", error);
+        setError("Impossibile eliminare la categoria.");
       }
     }
   };
@@ -165,53 +159,73 @@ export default function Admin() {
     setShowAddModal(true);
   };
 
-  const handleImageUpload = (e: any) => {
+  const handleImageResize = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+          
+          // Max dimensions for a web preview
+          const MAX_SIZE = 1200;
+          if (width > height) {
+            if (width > MAX_SIZE) {
+              height *= MAX_SIZE / width;
+              width = MAX_SIZE;
+            }
+          } else {
+            if (height > MAX_SIZE) {
+              width *= MAX_SIZE / height;
+              height = MAX_SIZE;
+            }
+          }
+          
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx?.drawImage(img, 0, 0, width, height);
+          
+          // Export with quality control to hit ~400-500KB range
+          resolve(canvas.toDataURL('image/jpeg', 0.8));
+        };
+        img.onerror = reject;
+        img.src = e.target?.result as string;
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleImageUpload = async (e: any) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Base64 encoding adds ~33% overhead. 600KB * 1.33 = ~800KB. 
-    // Firestore limit is 1MB. Let's stay safe at 600KB.
-    if (file.size > 600000) { 
-      alert("L'immagine è troppo grande. Usa un file inferiore a 600KB per garantire il salvataggio.");
-      return;
-    }
-
     setIsUploading(true);
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setFormData(prev => ({ ...prev, imageUrl: reader.result as string }));
+    try {
+      const resizedImage = await handleImageResize(file);
+      setFormData(prev => ({ ...prev, imageUrl: resizedImage }));
+    } catch (error) {
+      console.error("Resize failed", error);
+      alert("Errore nel caricamento dell'immagine.");
+    } finally {
       setIsUploading(false);
-    };
-    reader.onerror = () => {
-      alert("Errore nel caricamento del file.");
-      setIsUploading(false);
-    };
-    reader.readAsDataURL(file);
+    }
   };
 
   const handleDelete = async (id: string) => {
     if (window.confirm("Sei sicuro di voler eliminare questo lavoro?")) {
       try {
         await workService.deleteWork(id);
+        setSuccessMessage("Lavoro eliminato con successo!");
+        setTimeout(() => setSuccessMessage(null), 3000);
       } catch (error) {
-        console.error("Delete failed", error);
+        console.error("Admin: Delete failed", error);
       }
     }
   };
-
-  if (!isFirebaseConfigured) return (
-    <div className="max-w-md mx-auto mt-20 p-8 bg-amber-50 rounded-[2rem] border border-amber-200 shadow-xl text-center space-y-6">
-      <AlertTriangle className="w-12 h-12 mx-auto text-amber-600" />
-      <h1 className="text-2xl font-serif font-bold text-amber-900">Configurazione Necessaria</h1>
-      <p className="text-amber-800/80">
-        Il setup di Firebase non è stato completato correttamente. 
-        Controlla la console di AI Studio o riprova il setup.
-      </p>
-      <div className="p-4 bg-white rounded-xl text-xs text-left font-mono break-all overflow-auto max-h-32 border border-amber-100">
-        {JSON.stringify({ error: "Project number 836269112779 not found/permitted" }, null, 2)}
-      </div>
-    </div>
-  );
 
   if (loading) return (
     <div className="h-screen flex items-center justify-center">
@@ -219,11 +233,11 @@ export default function Admin() {
     </div>
   );
 
-  if (!user) return (
+  if (!isLoggedIn) return (
     <div className="max-w-md mx-auto mt-20 p-8 bg-white rounded-[2rem] border border-paper shadow-xl text-center space-y-6">
       <Lock className="w-12 h-12 mx-auto text-terracotta" />
       <h1 className="text-2xl font-serif font-bold">Accesso Riservato</h1>
-      <p className="text-ink/60">Accedi con il tuo account Google per gestire i tuoi lavori.</p>
+      <p className="text-ink/60">Accedi con il tuo account Google autorizzato per gestire i tuoi lavori.</p>
       
       {loginError && (
         <div className="p-4 bg-red-50 text-red-600 text-sm rounded-xl border border-red-100">
@@ -231,14 +245,19 @@ export default function Admin() {
         </div>
       )}
 
-      <button 
-        onClick={handleLogin}
-        className="w-full bg-ink text-cream py-4 rounded-full font-bold hover:bg-terracotta transition-all flex items-center justify-center space-x-2"
-      >
-        <span>Accedi con Google</span>
-      </button>
+      <form onSubmit={handleLogin} className="space-y-4">
+        <button 
+          type="submit"
+          className="w-full bg-ink text-cream py-4 rounded-full font-bold hover:bg-terracotta transition-all flex items-center justify-center space-x-2"
+        >
+          <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" className="w-5 h-5 bg-white rounded-sm p-0.5" />
+          <span>Accedi con Google</span>
+        </button>
+      </form>
+      <p className="text-[10px] text-ink/20 uppercase tracking-widest">Solo l'amministratore può accedere</p>
     </div>
   );
+
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-12">
@@ -292,6 +311,19 @@ export default function Admin() {
             <span className="font-bold">{successMessage}</span>
           </motion.div>
         )}
+        
+        {error && (
+          <motion.div 
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="mb-8 p-4 bg-red-50 text-red-600 rounded-2xl flex items-center justify-center space-x-2 border border-red-100 shadow-sm"
+          >
+            <AlertTriangle className="w-5 h-5 flex-shrink-0" />
+            <span className="text-sm font-medium">{error}</span>
+            <button onClick={() => window.location.reload()} className="ml-2 underline text-xs">Ricarica</button>
+          </motion.div>
+        )}
       </AnimatePresence>
 
       <div className="grid grid-cols-1 gap-4">
@@ -311,16 +343,20 @@ export default function Admin() {
             </div>
             <div className="flex space-x-2">
               <button 
+                type="button"
                 onClick={() => handleEdit(work)}
-                className="p-2 bg-paper rounded-lg hover:text-terracotta transition-colors"
+                className="p-2 bg-paper rounded-lg text-ink/40 hover:text-terracotta hover:bg-paper/80 transition-all"
+                title="Modifica"
               >
                 <Edit2 className="w-4 h-4" />
               </button>
               <button 
+                type="button"
                 onClick={() => handleDelete(work.id!)}
-                className="p-2 bg-paper rounded-lg hover:text-red-500 transition-colors"
+                title="Elimina lavoro"
+                className="p-3 bg-paper rounded-xl text-ink/40 hover:text-red-500 hover:bg-red-50 transition-all group flex items-center justify-center min-w-[44px] min-h-[44px]"
               >
-                <Trash2 className="w-4 h-4" />
+                <Trash2 className="w-5 h-5 group-hover:scale-110 transition-transform pointer-events-none" />
               </button>
             </div>
           </div>
@@ -331,19 +367,6 @@ export default function Admin() {
         <div className="mt-12 p-12 border-2 border-dashed border-paper rounded-[3rem] text-center space-y-4">
           <ImageIcon className="w-12 h-12 mx-auto text-ink/20" />
           <p className="text-xl font-serif italic text-ink/40">Non hai ancora caricato nessun lavoro.</p>
-          <div className="bg-amber-50 p-6 rounded-2xl max-w-lg mx-auto text-sm text-amber-800 space-y-2 border border-amber-100">
-            <p className="font-bold">⚠️ Nota per il primo accesso:</p>
-            <p>Se non vedi nulla o non puoi pubblicare, assicurati che il tuo UID sia nella collezione "admins":</p>
-            <p className="font-mono bg-white p-2 rounded border border-amber-200 break-all select-all text-xs">{user.uid}</p>
-            <a 
-              href="https://console.firebase.google.com/" 
-              target="_blank" 
-              className="inline-flex items-center space-x-1 underline hover:text-amber-600"
-            >
-              <span>Vai alla console</span>
-              <ExternalLink className="w-3 h-3" />
-            </a>
-          </div>
         </div>
       )}
 
@@ -380,10 +403,12 @@ export default function Admin() {
                     <div key={cat.id} className="flex items-center justify-between p-3 bg-paper rounded-xl">
                       <span className="text-sm font-medium">{cat.name}</span>
                       <button 
+                        type="button"
                         onClick={() => handleDeleteCategory(cat.id!)}
-                        className="text-ink/40 hover:text-red-500 transition-colors"
+                        className="p-2 hover:bg-red-50 text-ink/40 hover:text-red-500 rounded-lg transition-all flex items-center justify-center min-w-[32px] min-h-[32px]"
+                        title="Elimina categoria"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Trash2 className="w-4 h-4 pointer-events-none" />
                       </button>
                     </div>
                   ))}
@@ -402,16 +427,18 @@ export default function Admin() {
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white w-full max-w-lg rounded-[2rem] shadow-2xl overflow-hidden"
+              className="bg-white w-full max-w-lg rounded-[2rem] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
             >
-              <div className="p-8 border-b border-paper flex justify-between items-center">
+              <div className="p-8 border-b border-paper flex justify-between items-center shrink-0">
                 <h2 className="text-2xl font-serif font-bold">
                   {editingWork ? 'Modifica Lavoro' : 'Aggiungi Lavoro'}
                 </h2>
-                <button onClick={() => setShowAddModal(false)}><X /></button>
+                <button onClick={() => setShowAddModal(false)} className="p-2 hover:bg-paper rounded-full transition-colors">
+                  <X className="w-6 h-6" />
+                </button>
               </div>
               
-              <form onSubmit={handleSubmit} className="p-8 space-y-6">
+              <form onSubmit={handleSubmit} className="p-8 space-y-6 overflow-y-auto custom-scrollbar">
                 <div className="space-y-4">
                   <div>
                     <label className="block text-sm font-bold mb-2">Titolo</label>
@@ -451,13 +478,14 @@ export default function Admin() {
                             className="w-full h-full object-cover" 
                             alt="Preview" 
                           />
-                          <button 
-                            type="button"
-                            onClick={() => setFormData(prev => ({ ...prev, imageUrl: '' }))}
-                            className="absolute top-2 right-2 p-1 bg-white/80 rounded-full hover:bg-white text-ink"
-                          >
-                            <X className="w-4 h-4" />
-                          </button>
+                            <button 
+                              type="button"
+                              onClick={() => setFormData(prev => ({ ...prev, imageUrl: '' }))}
+                              className="absolute top-2 right-2 p-2 bg-white/90 rounded-full hover:bg-red-500 hover:text-white text-red-500 shadow-lg transition-all flex items-center justify-center"
+                              title="Rimuovi immagine"
+                            >
+                              <Trash2 className="w-5 h-5 pointer-events-none" />
+                            </button>
                         </div>
                       )}
                       

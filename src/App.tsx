@@ -7,9 +7,7 @@ import {
   useNavigate,
   useLocation
 } from 'react-router-dom';
-import { auth, db } from './lib/firebase';
-import { onAuthStateChanged, User } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
+import { storageService } from './services/storageService';
 import { motion, AnimatePresence } from 'motion/react';
 import Home from './pages/Home';
 import Admin from './pages/Admin';
@@ -19,10 +17,15 @@ import logo from './assets/images/regenerated_image_1777976278505.png';
 function Header() {
   const [isOpen, setIsOpen] = useState(false);
   const location = useLocation();
-  const [user, setUser] = useState<User | null>(null);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
 
   useEffect(() => {
-    return onAuthStateChanged(auth, (u) => setUser(u));
+    // Check both local storage and Firebase Auth
+    const unsubscribe = storageService.onAuthStateChange((user) => {
+      setIsLoggedIn(!!user && storageService.isAdmin());
+    });
+
+    return () => unsubscribe();
   }, []);
 
   const navLinks = [
@@ -96,7 +99,7 @@ function Header() {
                   {link.name}
                 </a>
               ))}
-              {user && (
+              {isLoggedIn && (
                 <Link
                   to="/admin"
                   onClick={() => setIsOpen(false)}

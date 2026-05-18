@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 import { workService, Work } from '../services/workService';
 import { categoryService, Category } from '../services/categoryService';
-import { isFirebaseConfigured } from '../lib/firebase';
 import { Search, Filter, ArrowRight, AlertCircle } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -20,28 +19,20 @@ export default function Home() {
   const [filter, setFilter] = useState('all');
 
   useEffect(() => {
-    if (!isFirebaseConfigured) {
-      setLoading(false);
-      return;
-    }
-
-    console.log("Setting up real-time subscriptions...");
+    console.log("Setting up data subscriptions...");
     
     // Subscribe to categories
     const unsubscribeCats = categoryService.subscribeToCategories((catsData) => {
-      console.log("Categories updated:", catsData.length);
       setCategories(catsData);
     });
 
     // Subscribe to works
     const unsubscribeWorks = workService.subscribeToWorks((worksData) => {
-      console.log("Works updated:", worksData.length);
       setWorks(worksData);
       setLoading(false);
     });
 
     return () => {
-      console.log("Cleaning up subscriptions...");
       unsubscribeCats();
       unsubscribeWorks();
     };
@@ -187,18 +178,8 @@ export default function Home() {
             </motion.div>
           )) : (
             <div className="col-span-full h-96 flex flex-col items-center justify-center text-ink/40 space-y-4">
-              {!isFirebaseConfigured ? (
-                <>
-                  <AlertCircle className="w-16 h-16 text-terracotta/40" />
-                  <p className="text-xl italic font-serif text-center">Database non configurato correttamente.</p>
-                  <p className="text-sm max-w-sm text-center">Vai alla sezione Admin per maggiori dettagli o completa il setup.</p>
-                </>
-              ) : (
-                <>
-                  <Search className="w-12 h-12 stroke-1" />
-                  <p className="text-lg italic font-serif text-center">Ancora nessun lavoro in questa categoria...</p>
-                </>
-              )}
+              <Search className="w-12 h-12 stroke-1" />
+              <p className="text-lg italic font-serif text-center">Ancora nessun lavoro in questa categoria...</p>
             </div>
           )}
         </motion.div>

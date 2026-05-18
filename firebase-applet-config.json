@@ -1,10 +1,10 @@
 {
-  "projectId": "gen-lang-client-0115072245",
-  "appId": "1:1020921772057:web:90f339f3a7eaecd850d288",
-  "apiKey": "AIzaSyB8OoXeYQw6fjZy3uIU6Mx6nVixzsx0bPU",
-  "authDomain": "maglia-mente2.vercel.app",
+  "projectId": "maglia-mente2",
+  "appId": "1:400663589716:web:c9c895821c128ce6678ec1",
+  "apiKey": "AIzaSyAmGoi8Lky67nMSqtarT_dLChN7ZdXvYx4",
+  "authDomain": "maglia-mente2.firebaseapp.com",
   "firestoreDatabaseId": "ai-studio-edd67661-97a1-4516-a69b-fcde4d85efbc",
-  "storageBucket": "gen-lang-client-0115072245.firebasestorage.app",
-  "messagingSenderId": "1020921772057",
+  "storageBucket": "maglia-mente2.firebasestorage.app",
+  "messagingSenderId": "400663589716",
   "measurementId": ""
 }
