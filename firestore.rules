@@ -1,52 +1,40 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    
     // Global helpers
     function isSignedIn() { return request.auth != null; }
+    
     function isAdmin() { 
       return isSignedIn() && 
-             request.auth.token.email == 'sgobbi.marco@gmail.com' && 
-             request.auth.token.email_verified == true; 
+             (request.auth.token.email == 'sgobbi.marco@gmail.com' && request.auth.token.email_verified == true);
     }
+    
     function incoming() { return request.resource.data; }
     function existing() { return resource.data; }
 
-    // Validation patterns
-    function isValidWork(data) {
-      return data.keys().hasAll(['title', 'description', 'category', 'imageUrl', 'createdAt']) &&
-             data.title is string && data.title.size() <= 200 &&
-             data.description is string && data.description.size() <= 5000 &&
-             data.category is string && data.category.size() <= 100 &&
-             data.imageUrl is string && data.imageUrl.size() <= 2000;
-    }
-
-    function isValidCategory(data) {
-      return data.keys().hasAll(['name', 'slug']) &&
-             data.keys().size() == 2 &&
-             data.name is string && data.name.size() <= 100 &&
-             data.slug is string && data.slug.size() <= 100;
+    // Connection test path
+    match /_connection_test/test {
+      allow read: if true;
     }
 
     // Collection: Works
     match /works/{workId} {
       allow read: if true;
-      allow create: if isAdmin() && isValidWork(incoming()) && incoming().createdAt == request.time;
-      allow update: if isAdmin() && isValidWork(incoming()) && (
-        incoming().createdAt == existing().createdAt &&
-        (incoming().updatedAt == request.time || !incoming().diff(existing()).affectedKeys().hasAny(['updatedAt']))
-      );
+      allow create: if isAdmin();
+      allow update: if isAdmin();
       allow delete: if isAdmin();
     }
 
     // Collection: Categories
     match /categories/{categoryId} {
       allow read: if true;
-      allow create: if isAdmin() && isValidCategory(incoming());
-      allow update: if isAdmin() && isValidCategory(incoming());
+      allow create: if isAdmin();
+      allow update: if isAdmin();
       allow delete: if isAdmin();
     }
 
-    // Default deny for everything else
+    // Default deny
     match /{document=**} {
       allow read, write: if false;
     }
