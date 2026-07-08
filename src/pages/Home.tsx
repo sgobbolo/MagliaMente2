@@ -195,11 +195,11 @@ export default function Home() {
           Hai un'idea o vuoi un <span className="italic text-dusty-pink">ordine personalizzato?</span>
         </h2>
         <p className="text-cream/70 max-w-2xl mx-auto text-lg leading-relaxed">
-          Sarei felice di dare vita ai tuoi desideri. Contattami via email o sui social per parlare del tuo prossimo capo fatto a mano.
+          Sarei felice di dare vita ai tuoi desideri. Contattami via email per parlare del tuo prossimo capo fatto a mano.
         </p>
         <div className="flex flex-col sm:flex-row justify-center gap-4 pt-4">
           <a 
-            href="mailto:ciao@magliamente.it"
+            href="mailto:sgobbi.marco@gmail.com"
             className="bg-cream text-ink px-10 py-5 rounded-full font-bold hover:bg-terracotta hover:text-cream transition-all text-center"
           >
             Scrivimi una email
@@ -208,7 +208,7 @@ export default function Home() {
             href="#"
             className="border border-cream/20 text-cream px-10 py-5 rounded-full font-bold hover:bg-cream hover:text-ink transition-all text-center"
           >
-            Seguimi su Instagram
+           
           </a>
         </div>
       </section>
